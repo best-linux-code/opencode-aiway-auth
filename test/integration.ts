@@ -29,6 +29,8 @@ interface ModelCapabilities {
   effort_levels?: string[]
   default_effort?: string
   default_thinking_type?: string
+  context_window?: number
+  max_output?: number
   input_modalities?: string[]
   output_modalities?: string[]
 }
@@ -83,6 +85,14 @@ async function testModelDiscovery(): Promise<Model[]> {
     assert(
       typeof m.capabilities?.default_thinking_type === "string",
       `model ${m.id} has default_thinking_type`,
+    )
+    assert(
+      typeof m.capabilities?.context_window === "number" && m.capabilities.context_window > 0,
+      `model ${m.id} has context_window=${m.capabilities?.context_window}`,
+    )
+    assert(
+      typeof m.capabilities?.max_output === "number" && m.capabilities.max_output > 0,
+      `model ${m.id} has max_output=${m.capabilities?.max_output}`,
     )
   }
 

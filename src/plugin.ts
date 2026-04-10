@@ -2,7 +2,6 @@ import type { Plugin } from "@opencode-ai/plugin"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
-import { getLimits } from "./limits.js"
 
 // ── Constants ──
 
@@ -23,6 +22,8 @@ interface AiWayCapabilities {
   effort_levels?: string[]
   default_effort?: string
   default_thinking_type?: "adaptive" | "enabled" | "none"
+  context_window?: number
+  max_output?: number
   input_modalities?: string[]
   output_modalities?: string[]
 }
@@ -121,7 +122,8 @@ function buildVariants(caps: AiWayCapabilities | undefined): Record<string, Reco
 
 function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const caps = m.capabilities
-  const limits = getLimits(m.id)
+  const context = caps?.context_window ?? 128000
+  const output = caps?.max_output ?? 4096
   const image = hasModality(caps, "image")
   const pdf = hasModality(caps, "pdf")
   const video = hasModality(caps, "video")
@@ -167,8 +169,8 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
     },
     cost: { input: 0, output: 0 },
     limit: {
-      context: limits.context,
-      output: limits.output,
+      context,
+      output,
     },
     headers: {},
     options: {},
