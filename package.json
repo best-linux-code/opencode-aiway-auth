@@ -1,7 +1,7 @@
 {
   "name": "opencode-aiway-auth",
-  "version": "1.0.6",
-  "description": "OpenCode plugin for AI Way (New API) authentication and model discovery",
+  "version": "1.0.7",
+  "description": "OpenCode plugin for AI Way authentication and model discovery",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,7 +27,6 @@
     "plugin",
     "aiway",
     "ai-way",
-    "new-api",
     "llm",
     "auth"
   ],

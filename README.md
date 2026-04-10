@@ -1,6 +1,6 @@
 # opencode-aiway-auth
 
-opencode-aiway-auth 是一款 OpenCode 插件，用于 AI Way（基于 New API 二次开发）的认证和模型发现。
+opencode-aiway-auth 是一款 OpenCode 插件，用于 AI Way 的认证和模型发现。
 
 ## 安装
 
