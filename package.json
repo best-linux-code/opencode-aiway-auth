@@ -1,0 +1,55 @@
+{
+  "name": "opencode-aiway-auth",
+  "version": "1.0.0",
+  "description": "OpenCode plugin for AI Way (New API) authentication and model discovery",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "tsc",
+    "integration": "npx tsx test/integration.ts"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "aiway",
+    "ai-way",
+    "new-api",
+    "llm",
+    "auth"
+  ],
+  "author": "best-linux-code",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/best-linux-code/opencode-aiway-auth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/best-linux-code/opencode-aiway-auth/issues"
+  },
+  "homepage": "https://github.com/best-linux-code/opencode-aiway-auth#readme",
+  "dependencies": {
+    "@opencode-ai/plugin": "^0.15.30"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=0.4.0"
+  }
+}
