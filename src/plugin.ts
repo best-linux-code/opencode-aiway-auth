@@ -227,6 +227,23 @@ function removeProviderConfig(): void {
   log("Removed provider config")
 }
 
+function ensureProviderConfig(): void {
+  const cfg = readConfig()
+  const providers = (cfg.provider as Record<string, unknown>) ?? {}
+  if (providers[PROVIDER_ID]) return
+  providers[PROVIDER_ID] = {
+    id: PROVIDER_ID,
+    name: PROVIDER_NAME,
+    api: `${DEFAULT_BASE_URL}/v1`,
+    npm: "@ai-sdk/openai-compatible",
+    env: [],
+    models: {},
+  }
+  cfg.provider = providers
+  writeConfig(cfg)
+  log("Bootstrap: wrote minimal provider config")
+}
+
 // ── Plugin Export ──
 
 export const AiWayAuthPlugin: Plugin = async () => {
@@ -245,7 +262,11 @@ export const AiWayAuthPlugin: Plugin = async () => {
       const entry = data[PROVIDER_ID] as Record<string, unknown> | undefined
       hasAuth = entry?.type === "api" && typeof entry?.key === "string" && entry.key !== ""
     } catch {}
-    if (!hasAuth) removeProviderConfig()
+    if (!hasAuth) {
+      removeProviderConfig()
+    } else {
+      ensureProviderConfig()
+    }
   } catch (e) {
     log(`Config cleanup error: ${e instanceof Error ? e.message : String(e)}`)
   }
