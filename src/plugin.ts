@@ -265,7 +265,8 @@ export const AiWayAuthPlugin: Plugin = async () => {
         const key = typeof auth?.key === "string" ? auth.key : ""
 
         if (!key) {
-          log("No API key available")
+          log("No API key available, cleaning up provider config")
+          try { removeProviderConfig() } catch {}
           return {}
         }
 

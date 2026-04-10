@@ -1,6 +1,6 @@
 {
   "name": "opencode-aiway-auth",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "OpenCode plugin for AI Way (New API) authentication and model discovery",
   "type": "module",
   "main": "./dist/index.js",
