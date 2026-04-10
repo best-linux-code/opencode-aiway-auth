@@ -143,7 +143,6 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
       url: `${base}/v1`,
       npm: "@ai-sdk/openai-compatible",
     },
-    status: "active",
     reasoning,
     capabilities: {
       temperature: true,
