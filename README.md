@@ -1,58 +1,54 @@
 # opencode-aiway-auth
 
-OpenCode plugin for AI Way (New API) — authentication and model discovery.
+opencode-aiway-auth 是一款 OpenCode 插件，用于 AI Way（基于 New API 二次开发）的认证和模型发现。
 
-## Installation
+## 安装
 
-Add to your OpenCode config (`~/.config/opencode/opencode.json`):
+在 `~/.config/opencode/opencode.json` 的 `plugin` 数组中添加 `"opencode-aiway-auth@latest"`。示例：
 
 ```json
 {
   "plugin": [
-    "/path/to/opencode-aiway-auth"
+    "opencode-aiway-auth@latest"
   ]
 }
 ```
 
-Or install from the plugin directory:
+OpenCode 启动时会自动通过 npm 安装插件。
 
-```bash
-cd /path/to/opencode-aiway-auth
-npm install
-npm run build
-```
+## 登录配置
 
-## Setup
+*   CLI 方式：运行 `opencode auth` 或在 OpenCode CLI 中选择 `aiway` provider，选择 "AI Way API Key" 方式登录。
+*   输入 AI Way 服务器地址（默认 `http://192.168.77.88`，可自定义）。
+*   输入 API Key（格式 `sk-...`）。
+*   登录成功后插件自动发现模型并写入配置。
 
-1. Start OpenCode
-2. Select **AI Way API Key** as auth provider
-3. Enter your AI Way server URL (default: `http://192.168.77.88`)
-4. Enter your API key
+## 功能特性
 
-The plugin will:
+*   自动模型发现：通过 `/v1/models` API 获取所有可用模型。
+*   能力映射：自动识别 effort levels、thinking mode、输入模态（text/image/pdf/video）。
+*   变体生成：为每个 effort level 生成变体（low/medium/high/max/xhigh）以及 thinking-disabled 变体。
+*   Token 限制：直接从 API 读取 context_window 和 max_output (v1.0.5+)。
+*   自动清理：退出登录后自动删除 provider 配置。
+*   自动恢复：重新登录后自动恢复 provider 配置。
 
-- Validate connectivity via `GET /v1/models`
-- Discover all available models and their capabilities
-- Register them as an OpenCode provider (`aiway`)
-- Persist config to `~/.config/opencode/opencode.json`
+## 配置说明
 
-## Models
+登录后插件自动在 `opencode.json` 中生成 `provider.aiway` 配置，包含所有发现的模型。用户无需手动配置 provider。如需自定义 AI Way 服务器地址，在登录时输入即可。
 
-Models are discovered dynamically from the AI Way server. The plugin maps:
+## 日志
 
-- **Capabilities**: effort levels, thinking mode, input modalities (text, image, pdf, video)
-- **Variants**: one per effort level (low, medium, high, max, xhigh) + thinking-disabled
-- **Limits**: context window and max output tokens from a built-in table
+日志写入 `/tmp/opencode-aiway-auth.log`，API Key 不会被记录。
 
-## Logging
-
-Logs are written to `/tmp/opencode-aiway-auth.log`. API keys are never logged.
-
-## Development
+## 开发
 
 ```bash
 npm install
-npm run build        # Compile TypeScript
-npm run typecheck    # Type-check only
-npm run integration  # Run integration tests against AI Way
+npm run build        # 编译 TypeScript
+npm run typecheck    # 仅类型检查
+npm run integration  # 运行集成测试（需设置 AIWAY_API_KEY 环境变量）
 ```
+
+## 许可证
+
+MIT
