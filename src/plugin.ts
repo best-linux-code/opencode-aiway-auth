@@ -109,7 +109,7 @@ function buildVariants(caps: AiWayCapabilities | undefined): Record<string, Reco
 
   if (caps.effort_levels) {
     for (const level of caps.effort_levels) {
-      variants[level] = { reasoning_effort: level }
+      variants[level] = { reasoningEffort: level }
     }
   }
 
