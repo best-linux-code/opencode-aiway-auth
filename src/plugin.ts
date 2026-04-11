@@ -377,18 +377,9 @@ export const AiWayAuthPlugin: Plugin = async () => {
     "chat.params": async (input, output) => {
       if (input.provider.id !== PROVIDER_ID) return
 
-      const effort = typeof output.options.reasoningEffort === "string"
-        ? output.options.reasoningEffort
-        : "default"
-
-      // Check if variant info is available from the user message
       const userVariant = (input.message as any)?.model?.variant
         ?? (input as any)?.variant
       const variants = (input.model as any).variants
-      const optKeys = Object.keys(output.options)
-
-      log(`[request] model=${input.model.id} effort=${effort} userVariant=${userVariant} variant_keys=${variants ? Object.keys(variants).join(',') : 'none'} opt_keys=${optKeys.join(',')}`)
-      log(`[request] full_options=${JSON.stringify(output.options)}`)
 
       // If variant was selected but reasoningEffort is missing from options,
       // inject it manually from the model's variants config
@@ -396,9 +387,10 @@ export const AiWayAuthPlugin: Plugin = async () => {
         const variantOptions = variants[userVariant]
         if (variantOptions.reasoningEffort) {
           output.options.reasoningEffort = variantOptions.reasoningEffort
-          log(`[request] INJECTED reasoningEffort=${variantOptions.reasoningEffort} from variant=${userVariant}`)
         }
       }
+
+      log(`[request] model=${input.model.id} variant=${userVariant ?? "none"} effort=${output.options.reasoningEffort ?? "default"}`)
     },
   }
 }
