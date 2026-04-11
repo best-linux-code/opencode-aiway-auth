@@ -199,7 +199,7 @@ function writeProviderConfig(models: AiWayModel[], base: string): void {
   const cfg = readConfig()
   const providers = (cfg.provider as Record<string, unknown>) ?? {}
   const current = (providers[PROVIDER_ID] as Record<string, unknown>) ?? {}
-  const modelsRecord = { ...((current.models as Record<string, Record<string, unknown>>) ?? {}) }
+  const modelsRecord: Record<string, Record<string, unknown>> = {}
 
   for (const m of models) {
     modelsRecord[m.id] = mapModel(m, base)
