@@ -381,7 +381,10 @@ export const AiWayAuthPlugin: Plugin = async () => {
         ? output.options.reasoningEffort
         : "default"
 
-      log(`[request] model=${input.model.id} effort=${effort}`)
+      const variants = (input.model as any).variants
+      const optKeys = Object.keys(output.options)
+      log(`[request] model=${input.model.id} effort=${effort} variant_keys=${variants ? Object.keys(variants).join(',') : 'none'} opt_keys=${optKeys.join(',')}`)
+      log(`[request] full_options=${JSON.stringify(output.options)}`)
     },
   }
 }
