@@ -33,6 +33,7 @@ interface AiWayModel {
   object: string
   created: number
   supported_endpoint_types?: string[]
+  display_name?: string
   capabilities?: AiWayCapabilities
 }
 
@@ -134,7 +135,7 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   return {
     id: m.id,
     providerID: PROVIDER_ID,
-    name: m.id,
+    name: m.display_name || m.id,
     attachment,
     modalities: {
       input: caps?.input_modalities ?? ["text"],
