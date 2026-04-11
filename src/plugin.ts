@@ -109,7 +109,7 @@ function buildVariants(caps: AiWayCapabilities | undefined): Record<string, Reco
 
   if (caps.effort_levels) {
     for (const level of caps.effort_levels) {
-      variants[level] = { reasoning_effort: level }
+      variants[level] = { reasoningEffort: level }
     }
   }
 
@@ -377,8 +377,8 @@ export const AiWayAuthPlugin: Plugin = async () => {
     "chat.params": async (input, output) => {
       if (input.provider.id !== PROVIDER_ID) return
 
-      const effort = typeof output.options.reasoning_effort === "string"
-        ? output.options.reasoning_effort
+      const effort = typeof output.options.reasoningEffort === "string"
+        ? output.options.reasoningEffort
         : "default"
 
       log(`[request] model=${input.model.id} effort=${effort}`)
