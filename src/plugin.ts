@@ -119,18 +119,145 @@ function supportsReasoning(caps: AiWayCapabilities | undefined): boolean {
   return caps.default_thinking_type !== undefined && caps.default_thinking_type !== "none"
 }
 
-function buildVariants(caps: AiWayCapabilities | undefined): Record<string, Record<string, unknown>> | undefined {
+function putNestedOption(
+  target: Record<string, unknown>,
+  provider: string,
+  key: string,
+  value: unknown,
+  overwrite = false,
+): void {
+  const current = target[provider]
+  const providerRecord = typeof current === "object" && current !== null
+    ? current as Record<string, unknown>
+    : {}
+  if (overwrite || providerRecord[key] === undefined) {
+    providerRecord[key] = value
+  }
+  target[provider] = providerRecord
+}
+
+function effortProviderOptions(protocol: Protocol, effort: string): Record<string, unknown> {
+  const providerOptions: Record<string, unknown> = {}
+  switch (protocol) {
+    case "messages":
+      // @ai-sdk/anthropic reads both the canonical anthropic key and a custom provider key.
+      putNestedOption(providerOptions, "anthropic", "effort", effort, true)
+      putNestedOption(providerOptions, PROVIDER_ID, "effort", effort, true)
+      break
+    case "responses":
+      // @ai-sdk/openai reads the canonical openai provider options for Responses.
+      putNestedOption(providerOptions, "openai", "reasoningEffort", effort, true)
+      break
+    case "chat_completions":
+      // @ai-sdk/openai-compatible reads openaiCompatible and the custom provider key.
+      putNestedOption(providerOptions, "openaiCompatible", "reasoningEffort", effort, true)
+      putNestedOption(providerOptions, PROVIDER_ID, "reasoningEffort", effort, true)
+      break
+  }
+  return providerOptions
+}
+
+function thinkingProviderOptions(protocol: Protocol, thinking: unknown): Record<string, unknown> {
+  const providerOptions: Record<string, unknown> = {}
+  switch (protocol) {
+    case "messages":
+      putNestedOption(providerOptions, "anthropic", "thinking", thinking, true)
+      putNestedOption(providerOptions, PROVIDER_ID, "thinking", thinking, true)
+      break
+    case "chat_completions":
+      putNestedOption(providerOptions, "openaiCompatible", "thinking", thinking, true)
+      putNestedOption(providerOptions, PROVIDER_ID, "thinking", thinking, true)
+      break
+    case "responses":
+      break
+  }
+  return providerOptions
+}
+
+function mergeProviderOptions(
+  target: Record<string, unknown>,
+  source: Record<string, unknown> | undefined,
+  overwrite = false,
+): void {
+  if (!source) return
+  const current = typeof target.providerOptions === "object" && target.providerOptions !== null
+    ? target.providerOptions as Record<string, unknown>
+    : {}
+
+  for (const [provider, rawOptions] of Object.entries(source)) {
+    if (typeof rawOptions !== "object" || rawOptions === null) continue
+    const nextOptions = rawOptions as Record<string, unknown>
+    for (const [key, value] of Object.entries(nextOptions)) {
+      putNestedOption(current, provider, key, value, overwrite)
+    }
+  }
+
+  target.providerOptions = current
+}
+
+function variantEffort(variantOptions: Record<string, unknown>): string | undefined {
+  if (typeof variantOptions.reasoningEffort === "string") {
+    return variantOptions.reasoningEffort
+  }
+  if (typeof variantOptions.effort === "string") {
+    return variantOptions.effort
+  }
+  return undefined
+}
+
+function applyProviderSpecificOptions(
+  options: Record<string, unknown>,
+  protocol: Protocol,
+  variantOptions: Record<string, unknown>,
+): void {
+  const effort = variantEffort(variantOptions)
+
+  if (effort) {
+    if (options.reasoningEffort === undefined) options.reasoningEffort = effort
+    if (protocol === "messages" && options.effort === undefined) options.effort = effort
+    mergeProviderOptions(options, effortProviderOptions(protocol, effort))
+  }
+
+  if (variantOptions.thinking !== undefined) {
+    if (options.thinking === undefined) options.thinking = variantOptions.thinking
+    mergeProviderOptions(options, thinkingProviderOptions(protocol, variantOptions.thinking))
+  }
+}
+
+function protocolFromNpm(npm: unknown): Protocol {
+  if (npm === ANTHROPIC_NPM) return "messages"
+  if (npm === OPENAI_NPM) return "responses"
+  return "chat_completions"
+}
+
+function providerOptionKeys(options: Record<string, unknown>): string {
+  if (typeof options.providerOptions !== "object" || options.providerOptions === null) {
+    return "none"
+  }
+  return Object.keys(options.providerOptions as Record<string, unknown>).join(",")
+}
+
+function buildVariants(
+  caps: AiWayCapabilities | undefined,
+  protocol: Protocol,
+): Record<string, Record<string, unknown>> | undefined {
   if (!caps) return undefined
   const variants: Record<string, Record<string, unknown>> = {}
 
   if (caps.effort_levels) {
     for (const level of caps.effort_levels) {
-      variants[level] = { reasoningEffort: level }
+      const variantOptions: Record<string, unknown> = { reasoningEffort: level }
+      if (protocol === "messages") variantOptions.effort = level
+      mergeProviderOptions(variantOptions, effortProviderOptions(protocol, level), true)
+      variants[level] = variantOptions
     }
   }
 
   if (caps.default_thinking_type === "adaptive" || caps.default_thinking_type === "enabled") {
-    variants["thinking-disabled"] = { thinking: { type: "disabled" } }
+    const thinking = { type: "disabled" }
+    const variantOptions: Record<string, unknown> = { thinking }
+    mergeProviderOptions(variantOptions, thinkingProviderOptions(protocol, thinking), true)
+    variants["thinking-disabled"] = variantOptions
   }
 
   return Object.keys(variants).length > 0 ? variants : undefined
@@ -226,8 +353,8 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const video = hasModality(caps, "video")
   const attachment = image || pdf || video
   const reasoning = supportsReasoning(caps)
-  const variants = buildVariants(caps)
   const protocol = chooseProtocol(m)
+  const variants = buildVariants(caps, protocol.protocol)
 
   return {
     id: m.id,
@@ -482,17 +609,27 @@ export const AiWayAuthPlugin: Plugin = async () => {
       const userVariant = (input.message as any)?.model?.variant
         ?? (input as any)?.variant
       const variants = (input.model as any).variants
+      const npm = (input.model as any)?.api?.npm ?? (input.model as any)?.provider?.npm
+      const protocol = protocolFromNpm(npm)
 
       // If variant was selected but reasoningEffort is missing from options,
       // inject it manually from the model's variants config
-      if (!output.options.reasoningEffort && userVariant && variants?.[userVariant]) {
+      if (userVariant && variants?.[userVariant]) {
         const variantOptions = variants[userVariant]
-        if (variantOptions.reasoningEffort) {
+        if (!output.options.reasoningEffort && variantOptions.reasoningEffort) {
           output.options.reasoningEffort = variantOptions.reasoningEffort
         }
+        applyProviderSpecificOptions(output.options as Record<string, unknown>, protocol, variantOptions)
+      } else if (typeof output.options.reasoningEffort === "string") {
+        applyProviderSpecificOptions(
+          output.options as Record<string, unknown>,
+          protocol,
+          { reasoningEffort: output.options.reasoningEffort },
+        )
       }
 
-      log(`[request] model=${input.model.id} variant=${userVariant ?? "none"} effort=${output.options.reasoningEffort ?? "default"}`)
+      const keys = providerOptionKeys(output.options as Record<string, unknown>)
+      log(`[request] model=${input.model.id} variant=${userVariant ?? "none"} protocol=${protocol} effort=${output.options.reasoningEffort ?? "default"} providerOptions=${keys}`)
     },
   }
 }

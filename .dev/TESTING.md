@@ -58,6 +58,8 @@ Target: `http://192.168.77.88`
 
 - select a model with `effort_levels`
 - verify variant with specific effort level is available
+- verify the selected variant populates the protocol-specific provider option:
+  `anthropic.effort`, `openai.reasoningEffort`, or `openaiCompatible.reasoningEffort`
 
 ### T-8 Unknown Model Fallback
 
