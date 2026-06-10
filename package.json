@@ -1,6 +1,6 @@
 {
   "name": "opencode-aiway-auth",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "OpenCode plugin for AI Way authentication and model discovery",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "tsc",
-    "integration": "npx tsx test/integration.ts"
+    "integration": "npx tsx test/integration.ts",
+    "test:jsonc": "npx tsx test/jsonc-config.ts"
   },
   "keywords": [
     "opencode",
@@ -41,7 +42,8 @@
   },
   "homepage": "https://github.com/best-linux-code/opencode-aiway-auth#readme",
   "dependencies": {
-    "@opencode-ai/plugin": "^0.15.30"
+    "@opencode-ai/plugin": "^0.15.30",
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

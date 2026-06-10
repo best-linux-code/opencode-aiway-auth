@@ -44,7 +44,9 @@ Target: `http://192.168.77.88`
 
 ### T-5 Provider Config
 
-- `opencode.json` updated with `aiway` provider block
+- `opencode.jsonc` updated with `aiway` provider block
+- JSONC comments and trailing commas remain valid after provider updates
+- stale `aiway` provider block is removed from legacy `opencode.json`
 - existing config not destroyed
 - provider `npm` is `@ai-sdk/openai-compatible`
 - provider `api` matches configured base URL + `/v1`

@@ -99,7 +99,7 @@ Plugin responsibilities:
 - map AI Way capabilities to OpenCode model metadata
 - supplement token limits from built-in table
 - register provider and models into OpenCode
-- persist provider config to `~/.config/opencode/opencode.json`
+- persist provider config to `~/.config/opencode/opencode.jsonc`
 
 AI Way responsibilities:
 
@@ -140,7 +140,7 @@ Loader:
 2. `GET /v1/models` with Bearer auth
 3. map each model: capabilities from API + limits from built-in table
 4. `patchProviderModels()` — mutate provider.models in-place
-5. `writeProviderConfig()` — persist to opencode.json
+5. `writeProviderConfig()` — persist to opencode.jsonc
 6. return `{ baseURL: "<base>/v1", apiKey }`
 
 Methods:
@@ -202,7 +202,7 @@ API-key auth. User inputs base URL + API key during login.
 
 ### 10.2 Config persistence
 
-Plugin writes only the `aiway` provider block in `~/.config/opencode/opencode.json`. Never touches other providers.
+Plugin writes only the `aiway` provider block in `~/.config/opencode/opencode.jsonc` using JSONC-aware edits. Never touches other providers. If an older generated `aiway` provider block exists in `~/.config/opencode/opencode.json`, the plugin removes only that stale block after writing the JSONC config.
 
 ### 10.3 Runtime refresh
 

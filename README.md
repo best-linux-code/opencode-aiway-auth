@@ -4,13 +4,14 @@ opencode-aiway-auth 是一款 OpenCode 插件，用于 AI Way 的认证和模型
 
 ## 安装
 
-在 `~/.config/opencode/opencode.json` 的 `plugin` 数组中添加 `"opencode-aiway-auth@latest"`。示例：
+在 `~/.config/opencode/opencode.jsonc` 的 `plugin` 数组中添加 `"opencode-aiway-auth@latest"`。示例：
 
-```json
+```jsonc
 {
+  // OpenCode plugins
   "plugin": [
     "opencode-aiway-auth@latest"
-  ]
+  ],
 }
 ```
 
@@ -36,7 +37,9 @@ OpenCode 启动时会自动通过 npm 安装插件。
 
 ## 配置说明
 
-登录后插件自动在 `opencode.json` 中生成 `provider.aiway` 配置，包含所有发现的模型。用户无需手动配置 provider。如需自定义 AI Way 服务器地址，在登录时输入即可。
+登录后插件自动在 `opencode.jsonc` 中生成 `provider.aiway` 配置，包含所有发现的模型。用户无需手动配置 provider。如需自定义 AI Way 服务器地址，在登录时输入即可。
+
+插件优先写入 `opencode.jsonc`，会用 JSONC 语法安全的局部编辑保留已有注释和尾逗号；如果旧 `opencode.json` 中存在历史生成的 `provider.aiway`，插件会自动清理该旧块，避免两个配置文件同时存在 provider 定义。
 
 ## 协议选择
 

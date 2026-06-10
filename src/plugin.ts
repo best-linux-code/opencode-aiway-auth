@@ -2,6 +2,15 @@ import type { Plugin } from "@opencode-ai/plugin"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import {
+  applyEdits,
+  modify,
+  parse,
+  printParseErrorCode,
+  type FormattingOptions,
+  type JSONPath,
+  type ParseError,
+} from "jsonc-parser"
 
 // ── Constants ──
 
@@ -12,6 +21,16 @@ const LOG_FILE = "/tmp/opencode-aiway-auth.log"
 const OPENAI_COMPATIBLE_NPM = "@ai-sdk/openai-compatible"
 const OPENAI_NPM = "@ai-sdk/openai"
 const ANTHROPIC_NPM = "@ai-sdk/anthropic"
+const CONFIG_JSON = "opencode.json"
+const CONFIG_JSONC = "opencode.jsonc"
+const JSONC_FORMATTING: FormattingOptions = {
+  insertSpaces: true,
+  tabSize: 2,
+  eol: "\n",
+  insertFinalNewline: true,
+}
+const PROVIDER_CONFIG_PATH: JSONPath = ["provider", PROVIDER_ID]
+const PROVIDER_ROOT_PATH: JSONPath = ["provider"]
 
 const logStream = fs.createWriteStream(LOG_FILE, { flags: "a" })
 
@@ -54,30 +73,120 @@ function configDir(): string {
   return path.join(xdg, "opencode")
 }
 
+function configJsonPath(): string {
+  return path.join(configDir(), CONFIG_JSON)
+}
+
+function configJsoncPath(): string {
+  return path.join(configDir(), CONFIG_JSONC)
+}
+
 function configPath(): string {
-  return path.join(configDir(), "opencode.json")
+  const jsonc = configJsoncPath()
+  if (fs.existsSync(jsonc)) return jsonc
+
+  const json = configJsonPath()
+  if (fs.existsSync(json)) return json
+
+  return jsonc
 }
 
-function readConfig(): Record<string, unknown> {
-  try {
-    if (!fs.existsSync(configPath())) return {}
-    return JSON.parse(fs.readFileSync(configPath(), "utf-8")) as Record<string, unknown>
-  } catch {
-    return {}
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+function hasOwnKey(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
+}
+
+function parseConfigText(text: string, file: string): Record<string, unknown> {
+  if (!text.trim()) return {}
+
+  const errors: ParseError[] = []
+  const parsed = parse(text, errors, {
+    allowTrailingComma: true,
+    allowEmptyContent: true,
+    disallowComments: false,
+  })
+
+  if (errors.length > 0) {
+    const first = errors[0]
+    throw new Error(`${file}: ${printParseErrorCode(first.error)} at offset ${first.offset}`)
   }
+
+  const cfg = asRecord(parsed)
+  if (!cfg) throw new Error(`${file}: expected top-level object`)
+  return cfg
 }
 
-function writeConfig(cfg: Record<string, unknown>): void {
-  const dir = configDir()
-  const target = configPath()
-  const tmp = path.join(dir, `opencode.json.tmp-${process.pid}-${Date.now().toString(36)}`)
+function readConfigFile(file: string): Record<string, unknown> {
+  if (!fs.existsSync(file)) return {}
+  return parseConfigText(fs.readFileSync(file, "utf-8"), file)
+}
+
+function mutationBaseText(file: string): string {
+  if (!fs.existsSync(file)) return "{\n}\n"
+  const text = fs.readFileSync(file, "utf-8")
+  return text.trim() ? text : "{\n}\n"
+}
+
+function writeTextAtomic(file: string, text: string): void {
+  const dir = path.dirname(file)
+  const tmp = path.join(dir, `${path.basename(file)}.tmp-${process.pid}-${Date.now().toString(36)}`)
   fs.mkdirSync(dir, { recursive: true })
   try {
-    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), "utf-8")
-    fs.renameSync(tmp, target)
+    fs.writeFileSync(tmp, text.endsWith("\n") ? text : `${text}\n`, "utf-8")
+    fs.renameSync(tmp, file)
   } catch (err) {
     try { fs.unlinkSync(tmp) } catch {}
     throw err
+  }
+}
+
+function updateConfigValue(file: string, jsonPath: JSONPath, value: unknown): boolean {
+  const text = mutationBaseText(file)
+  parseConfigText(text, file)
+  const edits = modify(text, jsonPath, value, { formattingOptions: JSONC_FORMATTING })
+  if (edits.length === 0) return false
+  writeTextAtomic(file, applyEdits(text, edits))
+  return true
+}
+
+function removeConfigValue(file: string, jsonPath: JSONPath): boolean {
+  if (!fs.existsSync(file)) return false
+  const text = fs.readFileSync(file, "utf-8")
+  if (!text.trim()) return false
+  parseConfigText(text, file)
+  const edits = modify(text, jsonPath, undefined, { formattingOptions: JSONC_FORMATTING })
+  if (edits.length === 0) return false
+  writeTextAtomic(file, applyEdits(text, edits))
+  return true
+}
+
+function removeProviderConfigFromFile(file: string): boolean {
+  if (!fs.existsSync(file)) return false
+
+  const cfg = readConfigFile(file)
+  const providers = asRecord(cfg.provider)
+  if (!providers || !hasOwnKey(providers, PROVIDER_ID)) return false
+
+  removeConfigValue(file, PROVIDER_CONFIG_PATH)
+
+  const nextProviders = asRecord(readConfigFile(file).provider)
+  if (nextProviders && Object.keys(nextProviders).length === 0) {
+    removeConfigValue(file, PROVIDER_ROOT_PATH)
+  }
+
+  return true
+}
+
+function cleanupLegacyProviderConfig(target: string): void {
+  const legacy = configJsonPath()
+  if (path.resolve(target) === path.resolve(legacy)) return
+  if (removeProviderConfigFromFile(legacy)) {
+    log(`Removed stale provider config from ${path.basename(legacy)}`)
   }
 }
 
@@ -424,16 +533,17 @@ function patchProvider(
 }
 
 function writeProviderConfig(models: AiWayModel[], base: string): void {
-  const cfg = readConfig()
-  const providers = (cfg.provider as Record<string, unknown>) ?? {}
-  const current = (providers[PROVIDER_ID] as Record<string, unknown>) ?? {}
+  const target = configPath()
+  const cfg = readConfigFile(target)
+  const providers = asRecord(cfg.provider) ?? {}
+  const current = asRecord(providers[PROVIDER_ID]) ?? {}
   const modelsRecord: Record<string, Record<string, unknown>> = {}
 
   for (const m of models) {
     modelsRecord[m.id] = mapModel(m, base)
   }
 
-  providers[PROVIDER_ID] = {
+  const providerConfig = {
     ...current,
     id: PROVIDER_ID,
     name: PROVIDER_NAME,
@@ -442,36 +552,40 @@ function writeProviderConfig(models: AiWayModel[], base: string): void {
     env: [],
     models: modelsRecord,
   }
-  cfg.provider = providers
-  writeConfig(cfg)
-  log(`Wrote provider config: ${Object.keys(modelsRecord).length} models`)
+
+  updateConfigValue(target, PROVIDER_CONFIG_PATH, providerConfig)
+  cleanupLegacyProviderConfig(target)
+  log(`Wrote provider config: ${Object.keys(modelsRecord).length} models to ${path.basename(target)}`)
 }
 
 function removeProviderConfig(): void {
-  const cfg = readConfig()
-  const providers = cfg.provider as Record<string, unknown> | undefined
-  if (!providers?.[PROVIDER_ID]) return
-  delete providers[PROVIDER_ID]
-  if (Object.keys(providers).length === 0) delete cfg.provider
-  writeConfig(cfg)
-  log("Removed provider config")
+  const removedFiles: string[] = []
+  for (const file of [configJsoncPath(), configJsonPath()]) {
+    if (removeProviderConfigFromFile(file)) {
+      removedFiles.push(path.basename(file))
+    }
+  }
+  if (removedFiles.length > 0) {
+    log(`Removed provider config from ${removedFiles.join(", ")}`)
+  }
 }
 
 function ensureProviderConfig(): void {
-  const cfg = readConfig()
-  const providers = (cfg.provider as Record<string, unknown>) ?? {}
-  if (providers[PROVIDER_ID]) return
-  providers[PROVIDER_ID] = {
+  const target = configPath()
+  const cfg = readConfigFile(target)
+  const providers = asRecord(cfg.provider) ?? {}
+  if (hasOwnKey(providers, PROVIDER_ID)) return
+
+  updateConfigValue(target, PROVIDER_CONFIG_PATH, {
     id: PROVIDER_ID,
     name: PROVIDER_NAME,
     api: `${DEFAULT_BASE_URL}/v1`,
     npm: OPENAI_COMPATIBLE_NPM,
     env: [],
     models: {},
-  }
-  cfg.provider = providers
-  writeConfig(cfg)
-  log("Bootstrap: wrote minimal provider config")
+  })
+  cleanupLegacyProviderConfig(target)
+  log(`Bootstrap: wrote minimal provider config to ${path.basename(target)}`)
 }
 
 // ── Plugin Export ──
