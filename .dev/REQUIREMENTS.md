@@ -2,7 +2,7 @@
 
 ## 1. Objective
 
-Build an OpenCode plugin that allows OpenCode to authenticate with AI Way and use its models through the standard OpenAI-compatible provider path.
+Build an OpenCode plugin that allows OpenCode to authenticate with AI Way and use its models through the provider protocol reported by AI Way model discovery.
 
 ## 2. Hard Constraints
 
@@ -37,7 +37,16 @@ Build an OpenCode plugin that allows OpenCode to authenticate with AI Way and us
 - provider id: `aiway`
 - npm: `@ai-sdk/openai-compatible`
 - api: `<base_url>/v1`
+- each model may override npm provider based on `native_endpoint_types`
 - config merges safely into existing OpenCode config
+
+### FR-4a Protocol Selection
+
+- `native_endpoint_types` is the primary source of truth
+- `responses` maps to `@ai-sdk/openai`
+- `messages` maps to `@ai-sdk/anthropic`
+- `completions` maps to `@ai-sdk/openai-compatible`
+- if `native_endpoint_types` is missing, fallback to model ID and `supported_endpoint_types`
 
 ### FR-5 Model Metadata Fidelity
 
@@ -66,7 +75,7 @@ Built-in limits table covers all 13 known models with conservative default (1280
 
 ### FR-9 Streaming Compatibility
 
-- no custom fetch needed — `@ai-sdk/openai-compatible` handles streaming natively
+- no custom fetch needed — the selected AI SDK provider handles streaming natively
 - plugin does not intercept or wrap responses
 
 ### FR-10 Documentation
@@ -98,7 +107,7 @@ Built-in limits table covers all 13 known models with conservative default (1280
 3. auth login succeeds against `http://192.168.77.88`
 4. `/v1/models` results visible through patched OpenCode models
 5. model capabilities match API response
-6. at least one chat completion succeeds
+6. at least one selected protocol request succeeds
 7. at least one reasoning-effort variant transmitted correctly
 8. image-capable models preserve that capability
 9. unknown models get conservative defaults

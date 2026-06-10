@@ -38,6 +38,8 @@ interface ModelCapabilities {
 interface Model {
   id: string
   object: string
+  supported_endpoint_types?: string[]
+  native_endpoint_types?: string[]
   capabilities?: ModelCapabilities
 }
 
@@ -94,15 +96,35 @@ async function testModelDiscovery(): Promise<Model[]> {
       typeof m.capabilities?.max_output === "number" && m.capabilities.max_output > 0,
       `model ${m.id} has max_output=${m.capabilities?.max_output}`,
     )
+    assert(
+      m.native_endpoint_types === undefined || Array.isArray(m.native_endpoint_types),
+      `model ${m.id} native_endpoint_types is array when present`,
+    )
   }
 
   return models
 }
 
-// ── T-3: Capability Mapping Sanity ──
+// ── T-3: Protocol Discovery ──
+
+function testProtocolDiscovery(models: Model[]): void {
+  console.log("\nT-3: Protocol Discovery")
+  const withNative = models.filter((m) => Array.isArray(m.native_endpoint_types) && m.native_endpoint_types.length > 0)
+  assert(withNative.length > 0, `${withNative.length} models expose native_endpoint_types`)
+
+  const counts = new Map<string, number>()
+  for (const m of withNative) {
+    for (const endpoint of m.native_endpoint_types ?? []) {
+      counts.set(endpoint, (counts.get(endpoint) ?? 0) + 1)
+    }
+  }
+  console.log(`  → native endpoints: ${JSON.stringify(Object.fromEntries(counts))}`)
+}
+
+// ── T-4: Capability Mapping Sanity ──
 
 function testCapabilityMapping(models: Model[]): void {
-  console.log("\nT-3: Capability Mapping")
+  console.log("\nT-4: Capability Mapping")
 
   const withEffort = models.filter((m) => m.capabilities?.effort_levels?.length)
   assert(withEffort.length > 0, `${withEffort.length} models have effort_levels`)
@@ -123,7 +145,7 @@ function testCapabilityMapping(models: Model[]): void {
 // ── T-4: Invalid Key ──
 
 async function testInvalidKey(): Promise<void> {
-  console.log("\nT-4: Invalid Key")
+  console.log("\nT-5: Invalid Key")
   try {
     const res = await fetch(`${BASE_URL}/v1/models`, {
       headers: { Authorization: "Bearer sk-invalid" },
@@ -138,7 +160,7 @@ async function testInvalidKey(): Promise<void> {
 // ── T-5: Chat Completion ──
 
 async function testChatCompletion(models: Model[]): Promise<void> {
-  console.log("\nT-5: Chat Completion (non-stream)")
+  console.log("\nT-6: Chat Completion (non-stream)")
   const model = models.find((m) => m.id.includes("haiku") || m.id.includes("mini")) ?? models[0]
   if (!model) {
     assert(false, "no model available for chat test")
@@ -176,6 +198,7 @@ async function main(): Promise<void> {
   try {
     await testConnectivity()
     const models = await testModelDiscovery()
+    testProtocolDiscovery(models)
     testCapabilityMapping(models)
     await testInvalidKey()
     await testChatCompletion(models)

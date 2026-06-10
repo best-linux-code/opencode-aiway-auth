@@ -9,6 +9,9 @@ const PROVIDER_ID = "aiway"
 const PROVIDER_NAME = "AI Way"
 const DEFAULT_BASE_URL = "http://192.168.77.88"
 const LOG_FILE = "/tmp/opencode-aiway-auth.log"
+const OPENAI_COMPATIBLE_NPM = "@ai-sdk/openai-compatible"
+const OPENAI_NPM = "@ai-sdk/openai"
+const ANTHROPIC_NPM = "@ai-sdk/anthropic"
 
 const logStream = fs.createWriteStream(LOG_FILE, { flags: "a" })
 
@@ -33,6 +36,7 @@ interface AiWayModel {
   object: string
   created: number
   supported_endpoint_types?: string[]
+  native_endpoint_types?: string[]
   display_name?: string
   capabilities?: AiWayCapabilities
 }
@@ -94,6 +98,17 @@ async function fetchModels(base: string, key: string): Promise<AiWayModel[]> {
 
 // ── Model Mapping ──
 
+type Protocol = "chat_completions" | "responses" | "messages"
+type ProtocolSource = "native_endpoint_types" | "supported_endpoint_types" | "model_id" | "default"
+type AiSdkPackage = typeof OPENAI_COMPATIBLE_NPM | typeof OPENAI_NPM | typeof ANTHROPIC_NPM
+
+interface ProtocolChoice {
+  protocol: Protocol
+  npm: AiSdkPackage
+  source: ProtocolSource
+  endpointType?: string
+}
+
 function hasModality(caps: AiWayCapabilities | undefined, mod: string): boolean {
   return caps?.input_modalities?.includes(mod) ?? false
 }
@@ -121,6 +136,87 @@ function buildVariants(caps: AiWayCapabilities | undefined): Record<string, Reco
   return Object.keys(variants).length > 0 ? variants : undefined
 }
 
+function npmForProtocol(protocol: Protocol): AiSdkPackage {
+  switch (protocol) {
+    case "responses":
+      return OPENAI_NPM
+    case "messages":
+      return ANTHROPIC_NPM
+    case "chat_completions":
+      return OPENAI_COMPATIBLE_NPM
+  }
+}
+
+function normalizeEndpointType(value: string): Protocol | undefined {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/^\/?v1\/?/, "")
+    .replace(/^\/+/, "")
+    .replace(/[\s./-]+/g, "_")
+
+  switch (normalized) {
+    case "responses":
+    case "response":
+    case "openai_response":
+    case "openai_responses":
+    case "openai_response_compact":
+    case "openai_responses_compact":
+      return "responses"
+    case "messages":
+    case "message":
+    case "claude_messages":
+    case "anthropic_messages":
+    case "anthropic":
+      return "messages"
+    case "completions":
+    case "completion":
+    case "chat_completions":
+    case "chat_completion":
+    case "openai":
+    case "openai_compatible":
+    case "openai_compatible_chat":
+      return "chat_completions"
+  }
+  return undefined
+}
+
+function choiceFromEndpointTypes(types: string[] | undefined, source: ProtocolSource): ProtocolChoice | undefined {
+  for (const type of types ?? []) {
+    const protocol = normalizeEndpointType(type)
+    if (protocol) {
+      return {
+        protocol,
+        npm: npmForProtocol(protocol),
+        source,
+        endpointType: type,
+      }
+    }
+  }
+  return undefined
+}
+
+function choiceFromModelID(id: string): ProtocolChoice | undefined {
+  const model = id.toLowerCase().trim()
+  if (model.includes("claude") || model.startsWith("anthropic/")) {
+    return { protocol: "messages", npm: ANTHROPIC_NPM, source: "model_id" }
+  }
+  if (
+    (/(?:^|\/)gpt-5(?:[.-]|$)/.test(model) && !model.includes("gpt-5-chat")) ||
+    ["o3-pro", "o3-deep-research", "o4-mini-deep-research"].some((item) => model.includes(item))
+  ) {
+    return { protocol: "responses", npm: OPENAI_NPM, source: "model_id" }
+  }
+  return undefined
+}
+
+function chooseProtocol(m: AiWayModel): ProtocolChoice {
+  return choiceFromEndpointTypes(m.native_endpoint_types, "native_endpoint_types")
+    ?? choiceFromModelID(m.id)
+    ?? choiceFromEndpointTypes(m.supported_endpoint_types, "supported_endpoint_types")
+    ?? { protocol: "chat_completions", npm: OPENAI_COMPATIBLE_NPM, source: "default" }
+}
+
 function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const caps = m.capabilities
   const context = caps?.context_window ?? 128000
@@ -131,6 +227,7 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const attachment = image || pdf || video
   const reasoning = supportsReasoning(caps)
   const variants = buildVariants(caps)
+  const protocol = chooseProtocol(m)
 
   return {
     id: m.id,
@@ -144,7 +241,10 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
     api: {
       id: m.id,
       url: `${base}/v1`,
-      npm: "@ai-sdk/openai-compatible",
+      npm: protocol.npm,
+    },
+    provider: {
+      npm: protocol.npm,
     },
     reasoning,
     capabilities: {
@@ -211,7 +311,7 @@ function writeProviderConfig(models: AiWayModel[], base: string): void {
     id: PROVIDER_ID,
     name: PROVIDER_NAME,
     api: `${base}/v1`,
-    npm: "@ai-sdk/openai-compatible",
+    npm: OPENAI_COMPATIBLE_NPM,
     env: [],
     models: modelsRecord,
   }
@@ -238,7 +338,7 @@ function ensureProviderConfig(): void {
     id: PROVIDER_ID,
     name: PROVIDER_NAME,
     api: `${DEFAULT_BASE_URL}/v1`,
-    npm: "@ai-sdk/openai-compatible",
+    npm: OPENAI_COMPATIBLE_NPM,
     env: [],
     models: {},
   }
@@ -317,7 +417,8 @@ export const AiWayAuthPlugin: Plugin = async () => {
         for (const m of models) {
           const caps = m.capabilities
           const efforts = caps?.effort_levels
-          log(`  ${m.id}: thinking=${caps?.default_thinking_type ?? "unknown"}${efforts ? `, effort=[${efforts}]` : ""}, input=[${caps?.input_modalities?.join(",") ?? "text"}]`)
+          const protocol = chooseProtocol(m)
+          log(`  ${m.id}: protocol=${protocol.protocol}/${protocol.npm} source=${protocol.source}${protocol.endpointType ? `(${protocol.endpointType})` : ""}, thinking=${caps?.default_thinking_type ?? "unknown"}${efforts ? `, effort=[${efforts}]` : ""}, input=[${caps?.input_modalities?.join(",") ?? "text"}]`)
         }
 
         return {

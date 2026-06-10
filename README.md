@@ -26,6 +26,7 @@ OpenCode 启动时会自动通过 npm 安装插件。
 ## 功能特性
 
 *   自动模型发现：通过 `/v1/models` API 获取所有可用模型。
+*   自动协议选择：优先读取 `native_endpoint_types`，为不同模型选择正确的 OpenCode/AI SDK provider。
 *   能力映射：自动识别 effort levels、thinking mode、输入模态（text/image/pdf/video）。
 *   变体生成：为每个 effort level 生成变体（low/medium/high/max/xhigh）以及 thinking-disabled 变体。
 *   Reasoning Effort 传递：自动将用户选择的变体（effort level）注入到 API 请求中，确保 `reasoning_effort` 参数正确传递给 AI Way 服务端。
@@ -36,6 +37,16 @@ OpenCode 启动时会自动通过 npm 安装插件。
 ## 配置说明
 
 登录后插件自动在 `opencode.json` 中生成 `provider.aiway` 配置，包含所有发现的模型。用户无需手动配置 provider。如需自定义 AI Way 服务器地址，在登录时输入即可。
+
+## 协议选择
+
+插件根据 AI Way `/v1/models` 返回的 `native_endpoint_types` 为每个模型自动选择访问协议：
+
+*   `responses` → `@ai-sdk/openai`，OpenCode 使用 Responses API。
+*   `messages` → `@ai-sdk/anthropic`，OpenCode 使用 Claude Messages API。
+*   `completions` → `@ai-sdk/openai-compatible`，OpenCode 使用 OpenAI-compatible Chat Completions API。
+
+如果服务端没有返回 `native_endpoint_types`，插件会回退到模型 ID 和旧的 `supported_endpoint_types` 判断；仍无法判断时默认使用 `@ai-sdk/openai-compatible`。
 
 ## Reasoning Effort（变体）
 
