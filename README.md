@@ -53,11 +53,11 @@ OpenCode 启动时会自动通过 npm 安装插件。
 
 ## Reasoning Effort（变体）
 
-插件会根据模型的 `effort_levels` 能力自动生成变体。在 OpenCode 中选择模型变体（如 `low`、`medium`、`high`）后，插件会按模型协议自动注入对应请求参数：
+插件会根据模型的 `effort_levels` 能力自动生成变体。在 OpenCode 中选择模型变体（如 `low`、`medium`、`high`）后，插件只向 OpenCode 的 **flat options** 注入字段（OpenCode 会再按 SDK 包装为 `providerOptions`；插件不再嵌套写 `options.providerOptions`，避免 `@ai-sdk/openai-compatible` 把未知字段泄漏进上游 body）：
 
-*   Messages / `@ai-sdk/anthropic`：写入 `providerOptions.anthropic.effort`。
-*   Responses / `@ai-sdk/openai`：写入 `providerOptions.openai.reasoningEffort`。
-*   Chat Completions / `@ai-sdk/openai-compatible`：写入 `providerOptions.openaiCompatible.reasoningEffort`，最终由 AI SDK 发送为 `reasoning_effort`。
+*   全部协议：flat `reasoningEffort`（由 AI SDK 映射为 `reasoning_effort` / `reasoning.effort` 等）。
+*   Messages / `@ai-sdk/anthropic`：额外 flat `effort`（映射为 `output_config.effort`）。
+*   Thinking 变体：flat `thinking`（如 `{ type: "disabled" }`）。
 
 支持的变体类型：
 
@@ -76,6 +76,8 @@ OpenCode 启动时会自动通过 npm 安装插件。
 npm install
 npm run build        # 编译 TypeScript
 npm run typecheck    # 仅类型检查
+npm run test:jsonc   # JSONC 配置写入测试
+npm run test:flat    # flat options / 无嵌套 providerOptions 回归
 npm run integration  # 运行集成测试（需设置 AIWAY_API_KEY 环境变量）
 ```
 
