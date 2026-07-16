@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "tsc",
     "integration": "npx tsx test/integration.ts",
-    "test:jsonc": "npx tsx test/jsonc-config.ts"
+    "test:jsonc": "npx tsx test/jsonc-config.ts",
+    "test:flat": "npx tsx test/flat-options.ts"
   },
   "keywords": [
     "opencode",

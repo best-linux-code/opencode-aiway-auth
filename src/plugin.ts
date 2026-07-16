@@ -228,82 +228,11 @@ function supportsReasoning(caps: AiWayCapabilities | undefined): boolean {
   return caps.default_thinking_type !== undefined && caps.default_thinking_type !== "none"
 }
 
-function putNestedOption(
-  target: Record<string, unknown>,
-  provider: string,
-  key: string,
-  value: unknown,
-  overwrite = false,
-): void {
-  const current = target[provider]
-  const providerRecord = typeof current === "object" && current !== null
-    ? current as Record<string, unknown>
-    : {}
-  if (overwrite || providerRecord[key] === undefined) {
-    providerRecord[key] = value
-  }
-  target[provider] = providerRecord
-}
-
-function effortProviderOptions(protocol: Protocol, effort: string): Record<string, unknown> {
-  const providerOptions: Record<string, unknown> = {}
-  switch (protocol) {
-    case "messages":
-      // @ai-sdk/anthropic reads both the canonical anthropic key and a custom provider key.
-      putNestedOption(providerOptions, "anthropic", "effort", effort, true)
-      putNestedOption(providerOptions, PROVIDER_ID, "effort", effort, true)
-      break
-    case "responses":
-      // @ai-sdk/openai reads the canonical openai provider options for Responses.
-      putNestedOption(providerOptions, "openai", "reasoningEffort", effort, true)
-      break
-    case "chat_completions":
-      // @ai-sdk/openai-compatible reads openaiCompatible and the custom provider key.
-      putNestedOption(providerOptions, "openaiCompatible", "reasoningEffort", effort, true)
-      putNestedOption(providerOptions, PROVIDER_ID, "reasoningEffort", effort, true)
-      break
-  }
-  return providerOptions
-}
-
-function thinkingProviderOptions(protocol: Protocol, thinking: unknown): Record<string, unknown> {
-  const providerOptions: Record<string, unknown> = {}
-  switch (protocol) {
-    case "messages":
-      putNestedOption(providerOptions, "anthropic", "thinking", thinking, true)
-      putNestedOption(providerOptions, PROVIDER_ID, "thinking", thinking, true)
-      break
-    case "chat_completions":
-      putNestedOption(providerOptions, "openaiCompatible", "thinking", thinking, true)
-      putNestedOption(providerOptions, PROVIDER_ID, "thinking", thinking, true)
-      break
-    case "responses":
-      break
-  }
-  return providerOptions
-}
-
-function mergeProviderOptions(
-  target: Record<string, unknown>,
-  source: Record<string, unknown> | undefined,
-  overwrite = false,
-): void {
-  if (!source) return
-  const current = typeof target.providerOptions === "object" && target.providerOptions !== null
-    ? target.providerOptions as Record<string, unknown>
-    : {}
-
-  for (const [provider, rawOptions] of Object.entries(source)) {
-    if (typeof rawOptions !== "object" || rawOptions === null) continue
-    const nextOptions = rawOptions as Record<string, unknown>
-    for (const [key, value] of Object.entries(nextOptions)) {
-      putNestedOption(current, provider, key, value, overwrite)
-    }
-  }
-
-  target.providerOptions = current
-}
-
+// OpenCode wraps the entire flat options bag under a provider key
+// (openai / anthropic / aiway) before the AI SDK reads it.
+// Nested options.providerOptions is therefore the wrong layer: for
+// @ai-sdk/openai-compatible it leaks into the upstream HTTP body as an
+// unknown key. Inject only flat fields that OpenCode already merges.
 function variantEffort(variantOptions: Record<string, unknown>): string | undefined {
   if (typeof variantOptions.reasoningEffort === "string") {
     return variantOptions.reasoningEffort
@@ -314,7 +243,7 @@ function variantEffort(variantOptions: Record<string, unknown>): string | undefi
   return undefined
 }
 
-function applyProviderSpecificOptions(
+function applyFlatVariantOptions(
   options: Record<string, unknown>,
   protocol: Protocol,
   variantOptions: Record<string, unknown>,
@@ -324,12 +253,10 @@ function applyProviderSpecificOptions(
   if (effort) {
     if (options.reasoningEffort === undefined) options.reasoningEffort = effort
     if (protocol === "messages" && options.effort === undefined) options.effort = effort
-    mergeProviderOptions(options, effortProviderOptions(protocol, effort))
   }
 
-  if (variantOptions.thinking !== undefined) {
-    if (options.thinking === undefined) options.thinking = variantOptions.thinking
-    mergeProviderOptions(options, thinkingProviderOptions(protocol, variantOptions.thinking))
+  if (variantOptions.thinking !== undefined && options.thinking === undefined) {
+    options.thinking = variantOptions.thinking
   }
 }
 
@@ -337,13 +264,6 @@ function protocolFromNpm(npm: unknown): Protocol {
   if (npm === ANTHROPIC_NPM) return "messages"
   if (npm === OPENAI_NPM) return "responses"
   return "chat_completions"
-}
-
-function providerOptionKeys(options: Record<string, unknown>): string {
-  if (typeof options.providerOptions !== "object" || options.providerOptions === null) {
-    return "none"
-  }
-  return Object.keys(options.providerOptions as Record<string, unknown>).join(",")
 }
 
 function buildVariants(
@@ -357,16 +277,12 @@ function buildVariants(
     for (const level of caps.effort_levels) {
       const variantOptions: Record<string, unknown> = { reasoningEffort: level }
       if (protocol === "messages") variantOptions.effort = level
-      mergeProviderOptions(variantOptions, effortProviderOptions(protocol, level), true)
       variants[level] = variantOptions
     }
   }
 
   if (caps.default_thinking_type === "adaptive" || caps.default_thinking_type === "enabled") {
-    const thinking = { type: "disabled" }
-    const variantOptions: Record<string, unknown> = { thinking }
-    mergeProviderOptions(variantOptions, thinkingProviderOptions(protocol, thinking), true)
-    variants["thinking-disabled"] = variantOptions
+    variants["thinking-disabled"] = { thinking: { type: "disabled" } }
   }
 
   return Object.keys(variants).length > 0 ? variants : undefined
@@ -726,24 +642,28 @@ export const AiWayAuthPlugin: Plugin = async () => {
       const npm = (input.model as any)?.api?.npm ?? (input.model as any)?.provider?.npm
       const protocol = protocolFromNpm(npm)
 
-      // If variant was selected but reasoningEffort is missing from options,
-      // inject it manually from the model's variants config
+      // If variant was selected but flat effort fields are missing from options,
+      // inject them from the model's variants config. Flat only — OpenCode wraps
+      // this bag under the SDK provider key; nested providerOptions would leak.
       if (userVariant && variants?.[userVariant]) {
         const variantOptions = variants[userVariant]
         if (!output.options.reasoningEffort && variantOptions.reasoningEffort) {
           output.options.reasoningEffort = variantOptions.reasoningEffort
         }
-        applyProviderSpecificOptions(output.options as Record<string, unknown>, protocol, variantOptions)
+        applyFlatVariantOptions(output.options as Record<string, unknown>, protocol, variantOptions)
       } else if (typeof output.options.reasoningEffort === "string") {
-        applyProviderSpecificOptions(
+        applyFlatVariantOptions(
           output.options as Record<string, unknown>,
           protocol,
           { reasoningEffort: output.options.reasoningEffort },
         )
       }
 
-      const keys = providerOptionKeys(output.options as Record<string, unknown>)
-      log(`[request] model=${input.model.id} variant=${userVariant ?? "none"} protocol=${protocol} effort=${output.options.reasoningEffort ?? "default"} providerOptions=${keys}`)
+      log(
+        `[request] model=${input.model.id} variant=${userVariant ?? "none"} protocol=${protocol}`
+        + ` effort=${output.options.reasoningEffort ?? "default"}`
+        + ` options=${Object.keys(output.options as Record<string, unknown>).join(",") || "none"}`,
+      )
     },
   }
 }
