@@ -60,8 +60,9 @@ Target: `http://192.168.77.88`
 
 - select a model with `effort_levels`
 - verify variant with specific effort level is available
-- verify the selected variant populates the protocol-specific provider option:
-  `anthropic.effort`, `openai.reasoningEffort`, or `openaiCompatible.reasoningEffort`
+- verify the selected variant / `chat.params` inject only flat options:
+  `reasoningEffort` (all protocols), plus `effort` for messages; never nested `providerOptions`
+- unit: `npm run test:flat` (or `npx tsx test/flat-options.ts`)
 
 ### T-8 Unknown Model Fallback
 

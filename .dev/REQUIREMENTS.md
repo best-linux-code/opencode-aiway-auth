@@ -58,10 +58,9 @@ Build an OpenCode plugin that allows OpenCode to authenticate with AI Way and us
 
 ### FR-6 Variant Generation
 
-- one variant per `effort_levels` value with `reasoning_effort` set
-- effort variants must also include provider-specific `providerOptions` for the selected protocol
-  (`anthropic.effort`, `openai.reasoningEffort`, or `openaiCompatible.reasoningEffort`)
-- `thinking-disabled` variant for models with `default_thinking_type` = `adaptive` or `enabled`
+- one variant per `effort_levels` value with flat `reasoningEffort` set
+- messages protocol also sets flat `effort` (same level); never nest `providerOptions` in variant/options bags (OpenCode wraps flat options; nested keys leak on openai-compatible)
+- `thinking-disabled` variant for models with `default_thinking_type` = `adaptive` or `enabled` uses flat `thinking`
 - no variant for unsupported effort levels
 - unknown models with no `effort_levels` get no effort variants
 
@@ -110,6 +109,6 @@ Built-in limits table covers all 13 known models with conservative default (1280
 4. `/v1/models` results visible through patched OpenCode models
 5. model capabilities match API response
 6. at least one selected protocol request succeeds
-7. at least one reasoning-effort variant transmitted correctly through provider-specific options
+7. at least one reasoning-effort variant transmitted correctly as flat OpenCode options (no nested providerOptions leak)
 8. image-capable models preserve that capability
 9. unknown models get conservative defaults

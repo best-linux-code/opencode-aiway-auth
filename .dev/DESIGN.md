@@ -190,8 +190,9 @@ Methods:
 ## 9. Variant Strategy
 
 - One variant per `effort_levels` value (e.g. `low`, `medium`, `high`, `max`, `xhigh`)
-- Each variant sets `reasoning_effort` to that level
-- Models with `default_thinking_type` = `adaptive` or `enabled`: add `thinking-disabled` variant
+- Each variant sets flat OpenCode options only: `reasoningEffort` (all protocols) and `effort` (messages)
+- Do **not** nest `options.providerOptions` — OpenCode wraps the flat bag; nested keys leak into the upstream body on `@ai-sdk/openai-compatible`
+- Models with `default_thinking_type` = `adaptive` or `enabled`: add `thinking-disabled` with flat `thinking: { type: "disabled" }`
 - No `thinking-enabled` variant auto-created — thinking is already the default for those models
 
 ## 10. Auth and Config
