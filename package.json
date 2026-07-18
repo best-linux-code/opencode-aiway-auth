@@ -1,6 +1,6 @@
 {
   "name": "opencode-aiway-auth",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "OpenCode plugin for AI Way authentication and model discovery",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,8 @@
     "prepublishOnly": "tsc",
     "integration": "npx tsx test/integration.ts",
     "test:jsonc": "npx tsx test/jsonc-config.ts",
-    "test:flat": "npx tsx test/flat-options.ts"
+    "test:flat": "npx tsx test/flat-options.ts",
+    "test:pricing": "npx tsx test/pricing-map.ts"
   },
   "keywords": [
     "opencode",
