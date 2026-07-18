@@ -50,6 +50,28 @@ interface AiWayCapabilities {
   output_modalities?: string[]
 }
 
+interface AiWayRateFields {
+  input?: number
+  output?: number
+  cache_read?: number
+  cache_write?: number
+}
+
+interface AiWayPricingTier extends AiWayRateFields {
+  name?: string
+  max_input_tokens?: number
+  min_input_tokens?: number
+}
+
+interface AiWayPricing extends AiWayRateFields {
+  currency?: string
+  billing_mode?: string
+  unit?: string
+  request?: number
+  tiers?: AiWayPricingTier[]
+  billing_expression?: string
+}
+
 interface AiWayModel {
   id: string
   object: string
@@ -58,6 +80,23 @@ interface AiWayModel {
   native_endpoint_types?: string[]
   display_name?: string
   capabilities?: AiWayCapabilities
+  pricing?: AiWayPricing
+}
+
+interface OpenCodeCostRates {
+  input: number
+  output: number
+  cache_read?: number
+  cache_write?: number
+}
+
+interface OpenCodeCost extends OpenCodeCostRates {
+  context_over_200k?: OpenCodeCostRates
+  tiers?: Array<
+    OpenCodeCostRates & {
+      tier: { type: "context"; size: number }
+    }
+  >
 }
 
 interface AiWayModelsResponse {
@@ -369,6 +408,92 @@ function chooseProtocol(m: AiWayModel): ProtocolChoice {
     ?? { protocol: "chat_completions", npm: OPENAI_COMPATIBLE_NPM, source: "default" }
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
+function ratesFrom(fields: AiWayRateFields | undefined): OpenCodeCostRates {
+  const rates: OpenCodeCostRates = {
+    input: isFiniteNumber(fields?.input) ? fields.input : 0,
+    output: isFiniteNumber(fields?.output) ? fields.output : 0,
+  }
+  if (isFiniteNumber(fields?.cache_read)) rates.cache_read = fields.cache_read
+  if (isFiniteNumber(fields?.cache_write)) rates.cache_write = fields.cache_write
+  return rates
+}
+
+// OpenCode: contextTokens > tier.size. AI Way long_context min_input_tokens is exclusive (e.g. 272001).
+function higherTierSize(tier: AiWayPricingTier): number | undefined {
+  if (isFiniteNumber(tier.min_input_tokens) && tier.min_input_tokens > 0) {
+    return Math.max(0, tier.min_input_tokens - 1)
+  }
+  if (isFiniteNumber(tier.max_input_tokens) && tier.max_input_tokens > 0) {
+    return tier.max_input_tokens
+  }
+  return undefined
+}
+
+function sortPricingTiers(tiers: readonly AiWayPricingTier[]): AiWayPricingTier[] {
+  return [...tiers].sort((a, b) => {
+    const aHigher = isFiniteNumber(a.min_input_tokens) ? 1 : 0
+    const bHigher = isFiniteNumber(b.min_input_tokens) ? 1 : 0
+    if (aHigher !== bHigher) return aHigher - bHigher
+    const aKey = isFiniteNumber(a.max_input_tokens)
+      ? a.max_input_tokens
+      : isFiniteNumber(a.min_input_tokens)
+        ? a.min_input_tokens
+        : 0
+    const bKey = isFiniteNumber(b.max_input_tokens)
+      ? b.max_input_tokens
+      : isFiniteNumber(b.min_input_tokens)
+        ? b.min_input_tokens
+        : 0
+    return aKey - bKey
+  })
+}
+
+// USD/1M token rates map 1:1 into OpenCode cost — never divide by 1e6 (OpenCode does that at calc time).
+export function mapCost(pricing: AiWayPricing | undefined): OpenCodeCost {
+  if (!pricing) return { input: 0, output: 0 }
+
+  const mode = pricing.billing_mode
+
+  if (mode === "request") {
+    return { input: 0, output: 0 }
+  }
+
+  if (mode === "tiered") {
+    const rawTiers = pricing.tiers
+    if (!rawTiers || rawTiers.length === 0) return { input: 0, output: 0 }
+
+    const sorted = sortPricingTiers(rawTiers)
+    const base = ratesFrom(sorted[0])
+    const cost: OpenCodeCost = { ...base }
+
+    const openCodeTiers: NonNullable<OpenCodeCost["tiers"]> = []
+    for (const tier of sorted.slice(1)) {
+      const size = higherTierSize(tier)
+      if (size === undefined) continue
+      const rates = ratesFrom(tier)
+      openCodeTiers.push({
+        ...rates,
+        tier: { type: "context", size },
+      })
+      if (size >= 150_000 && size <= 300_000 && cost.context_over_200k === undefined) {
+        cost.context_over_200k = rates
+      }
+    }
+    if (openCodeTiers.length > 0) cost.tiers = openCodeTiers
+    return cost
+  }
+
+  if (isFiniteNumber(pricing.input) || isFiniteNumber(pricing.output)) {
+    return ratesFrom(pricing)
+  }
+
+  return { input: 0, output: 0 }
+}
+
 function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const caps = m.capabilities
   const context = caps?.context_window ?? 128000
@@ -420,7 +545,7 @@ function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
       },
       interleaved: false,
     },
-    cost: { input: 0, output: 0 },
+    cost: mapCost(m.pricing),
     limit: {
       context,
       output,
