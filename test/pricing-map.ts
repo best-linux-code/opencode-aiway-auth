@@ -3,7 +3,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { parse } from "jsonc-parser"
-import { AiWayAuthPlugin, mapCost } from "../src/plugin.js"
+import { AiWayAuthPlugin, mapCost, toRuntimeCost } from "../src/plugin.js"
 
 // ── Unit: mapCost ──
 
@@ -127,6 +127,60 @@ function testMapCostEmptyTiered(): void {
   })
 }
 
+function testToRuntimeCostNestedCache(): void {
+  // Given config-shaped cost with flat cache_* fields
+  // When toRuntimeCost runs
+  // Then runtime getUsage shape has nested cache + experimentalOver200K
+  assert.deepEqual(
+    toRuntimeCost({
+      input: 1,
+      output: 5,
+      cache_read: 0.1,
+      cache_write: 1.25,
+    }),
+    {
+      input: 1,
+      output: 5,
+      cache: { read: 0.1, write: 1.25 },
+    },
+  )
+
+  assert.deepEqual(
+    toRuntimeCost({
+      input: 5,
+      output: 30,
+      cache_read: 0.5,
+      context_over_200k: { input: 10, output: 45, cache_read: 1 },
+      tiers: [
+        {
+          input: 10,
+          output: 45,
+          cache_read: 1,
+          tier: { type: "context", size: 272000 },
+        },
+      ],
+    }),
+    {
+      input: 5,
+      output: 30,
+      cache: { read: 0.5, write: 0 },
+      experimentalOver200K: {
+        input: 10,
+        output: 45,
+        cache: { read: 1, write: 0 },
+      },
+      tiers: [
+        {
+          input: 10,
+          output: 45,
+          cache: { read: 1, write: 0 },
+          tier: { type: "context", size: 272000 },
+        },
+      ],
+    },
+  )
+}
+
 // ── Integration: written opencode.jsonc cost ──
 
 async function testWrittenConfigCost(): Promise<void> {
@@ -233,7 +287,46 @@ async function testWrittenConfigCost(): Promise<void> {
     const plugin = await AiWayAuthPlugin()
     const auth = plugin.auth
     assert.ok(auth)
-    await auth.loader(async () => ({ key: "sk-test" }), { api: "https://aiway.example/v1" })
+
+    // Mutable provider object mirrors OpenCode's in-memory provider that loader patches.
+    const runtimeProvider: Record<string, unknown> = {
+      api: "https://aiway.example/v1",
+      models: {},
+    }
+    await auth.loader(async () => ({ key: "sk-test" }), runtimeProvider)
+
+    const runtimeModels = runtimeProvider.models as Record<string, Record<string, unknown>>
+    // Given loader patchProvider
+    // When inspecting in-memory model cost
+    // Then nested cache shape is present so getUsage can bill cache tokens
+    assert.deepEqual(runtimeModels["claude-haiku-4-5"].cost, {
+      input: 1,
+      output: 5,
+      cache: { read: 0.1, write: 1.25 },
+    })
+    assert.deepEqual(runtimeModels["gpt-5.5"].cost, {
+      input: 5,
+      output: 30,
+      cache: { read: 0.5, write: 0 },
+      experimentalOver200K: {
+        input: 10,
+        output: 45,
+        cache: { read: 1, write: 0 },
+      },
+      tiers: [
+        {
+          input: 10,
+          output: 45,
+          cache: { read: 1, write: 0 },
+          tier: { type: "context", size: 272000 },
+        },
+      ],
+    })
+    assert.deepEqual(runtimeModels["rerank-4-fast"].cost, {
+      input: 0,
+      output: 0,
+      cache: { read: 0, write: 0 },
+    })
 
     const parsed = parse(fs.readFileSync(jsoncPath, "utf-8"), undefined, {
       allowTrailingComma: true,
@@ -246,7 +339,7 @@ async function testWrittenConfigCost(): Promise<void> {
 
     // Given loader wrote models with pricing
     // When reading opencode.jsonc
-    // Then cost fields match mapCost outputs
+    // Then cost fields stay config-shaped (flat cache_*)
     assert.deepEqual(models["claude-haiku-4-5"].cost, {
       input: 1,
       output: 5,
@@ -284,6 +377,7 @@ async function main(): Promise<void> {
   testMapCostTieredGrok()
   testMapCostTieredGpt55()
   testMapCostEmptyTiered()
+  testToRuntimeCostNestedCache()
   await testWrittenConfigCost()
 }
 

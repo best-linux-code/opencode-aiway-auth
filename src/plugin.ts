@@ -99,6 +99,24 @@ interface OpenCodeCost extends OpenCodeCostRates {
   >
 }
 
+interface OpenCodeRuntimeCacheRates {
+  readonly input: number
+  readonly output: number
+  readonly cache: {
+    readonly read: number
+    readonly write: number
+  }
+}
+
+interface OpenCodeRuntimeCost extends OpenCodeRuntimeCacheRates {
+  readonly experimentalOver200K?: OpenCodeRuntimeCacheRates
+  readonly tiers?: ReadonlyArray<
+    OpenCodeRuntimeCacheRates & {
+      readonly tier: { readonly type: "context"; readonly size: number }
+    }
+  >
+}
+
 interface AiWayModelsResponse {
   object: string
   data: AiWayModel[]
@@ -494,6 +512,39 @@ export function mapCost(pricing: AiWayPricing | undefined): OpenCodeCost {
   return { input: 0, output: 0 }
 }
 
+// Flat config cost → nested runtime cost (getUsage reads cost.cache.*, not cache_write).
+export function toRuntimeCost(cost: OpenCodeCost): OpenCodeRuntimeCost {
+  const nest = (rates: OpenCodeCostRates): OpenCodeRuntimeCacheRates => ({
+    input: rates.input,
+    output: rates.output,
+    cache: {
+      read: rates.cache_read ?? 0,
+      write: rates.cache_write ?? 0,
+    },
+  })
+
+  const runtime: {
+    input: number
+    output: number
+    cache: { read: number; write: number }
+    experimentalOver200K?: OpenCodeRuntimeCacheRates
+    tiers?: Array<OpenCodeRuntimeCacheRates & { tier: { type: "context"; size: number } }>
+  } = nest(cost)
+
+  if (cost.context_over_200k) {
+    runtime.experimentalOver200K = nest(cost.context_over_200k)
+  }
+
+  if (cost.tiers && cost.tiers.length > 0) {
+    runtime.tiers = cost.tiers.map((t) => ({
+      ...nest(t),
+      tier: t.tier,
+    }))
+  }
+
+  return runtime
+}
+
 function mapModel(m: AiWayModel, base: string): Record<string, unknown> {
   const caps = m.capabilities
   const context = caps?.context_window ?? 128000
@@ -567,7 +618,11 @@ function patchProvider(
   const existing = (target.models ?? {}) as Record<string, Record<string, unknown>>
 
   for (const m of models) {
-    existing[m.id] = mapModel(m, base)
+    const mapped = mapModel(m, base)
+    existing[m.id] = {
+      ...mapped,
+      cost: toRuntimeCost(mapCost(m.pricing)),
+    }
   }
 
   target.models = existing
