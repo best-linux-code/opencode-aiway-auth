@@ -304,15 +304,20 @@ function applyFlatVariantOptions(
   options: Record<string, unknown>,
   protocol: Protocol,
   variantOptions: Record<string, unknown>,
+  // When the user picked a named variant, force its effort over OpenCode defaults
+  // (OpenCode often pre-fills reasoningEffort="low" before chat.params runs).
+  force = false,
 ): void {
   const effort = variantEffort(variantOptions)
 
   if (effort) {
-    if (options.reasoningEffort === undefined) options.reasoningEffort = effort
-    if (protocol === "messages" && options.effort === undefined) options.effort = effort
+    if (force || options.reasoningEffort === undefined) options.reasoningEffort = effort
+    if (protocol === "messages" && (force || options.effort === undefined)) {
+      options.effort = effort
+    }
   }
 
-  if (variantOptions.thinking !== undefined && options.thinking === undefined) {
+  if (variantOptions.thinking !== undefined && (force || options.thinking === undefined)) {
     options.thinking = variantOptions.thinking
   }
 }
@@ -822,26 +827,38 @@ export const AiWayAuthPlugin: Plugin = async () => {
       const npm = (input.model as any)?.api?.npm ?? (input.model as any)?.provider?.npm
       const protocol = protocolFromNpm(npm)
 
-      // If variant was selected but flat effort fields are missing from options,
-      // inject them from the model's variants config. Flat only — OpenCode wraps
-      // this bag under the SDK provider key; nested providerOptions would leak.
+      // Selected variant always wins over OpenCode pre-filled defaults (often
+      // reasoningEffort="low"). Flat only — OpenCode wraps this bag under the
+      // SDK provider key; nested providerOptions would leak on openai-compatible.
       if (userVariant && variants?.[userVariant]) {
-        const variantOptions = variants[userVariant]
-        if (!output.options.reasoningEffort && variantOptions.reasoningEffort) {
-          output.options.reasoningEffort = variantOptions.reasoningEffort
-        }
-        applyFlatVariantOptions(output.options as Record<string, unknown>, protocol, variantOptions)
+        applyFlatVariantOptions(
+          output.options as Record<string, unknown>,
+          protocol,
+          variants[userVariant],
+          true,
+        )
       } else if (typeof output.options.reasoningEffort === "string") {
         applyFlatVariantOptions(
           output.options as Record<string, unknown>,
           protocol,
           { reasoningEffort: output.options.reasoningEffort },
         )
+      } else if (typeof output.options.effort === "string") {
+        applyFlatVariantOptions(
+          output.options as Record<string, unknown>,
+          protocol,
+          { effort: output.options.effort },
+        )
       }
+
+      const resolvedEffort =
+        (typeof output.options.effort === "string" ? output.options.effort : undefined)
+        ?? (typeof output.options.reasoningEffort === "string" ? output.options.reasoningEffort : undefined)
 
       log(
         `[request] model=${input.model.id} variant=${userVariant ?? "none"} protocol=${protocol}`
-        + ` effort=${output.options.reasoningEffort ?? "default"}`
+        + ` effort=${resolvedEffort ?? "default"}`
+        + ` reasoningEffort=${output.options.reasoningEffort ?? "-"}`
         + ` options=${Object.keys(output.options as Record<string, unknown>).join(",") || "none"}`,
       )
     },

@@ -175,6 +175,34 @@ async function main(): Promise<void> {
       assert.equal(output.options[key], value, `chat.params ${item.id}.${key}`)
     }
   }
+
+  // OpenCode often pre-fills reasoningEffort="low" before chat.params.
+  // Selected variant must force-overwrite that default.
+  {
+    const modelRecord = models["claude-sonnet-4-6"]
+    const output = {
+      options: {
+        reasoningEffort: "low",
+        effort: "low",
+      } as Record<string, unknown>,
+    }
+    await chatParams(
+      {
+        provider: { id: "aiway" },
+        model: {
+          id: "claude-sonnet-4-6",
+          api: { npm: "@ai-sdk/anthropic" },
+          provider: { npm: "@ai-sdk/anthropic" },
+          variants: modelRecord.variants,
+        },
+        message: { model: { variant: "max" } },
+      },
+      output,
+    )
+    assert.equal(output.options.reasoningEffort, "max", "force overwrite reasoningEffort")
+    assert.equal(output.options.effort, "max", "force overwrite effort")
+    assertNoNestedProviderOptions("chat.params force-overwrite", output.options)
+  }
 }
 
 try {
